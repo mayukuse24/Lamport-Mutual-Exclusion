@@ -1,28 +1,16 @@
 package app;
 
 import java.net.*;
+import java.security.InvalidParameterException;
 import java.io.*;
 import java.util.*;
 import java.time.*;
 
-public class Client {
-    String id;
+public class Client extends Node {
     List<Node> serverList = new ArrayList<Node>();
 
-    public static class Node {
-        String id;
-        String ip;
-        int port;
-
-        public Node(String Id, String Ip, int p) {
-            this.id = Id;
-            this.ip = Ip;
-            this.port = p;
-        }
-    }
-
     public Client(String Id) {
-        this.id = Id;
+        super(Id);
     }
 
     public void loadConfig(String fileName) {
@@ -58,6 +46,10 @@ public class Client {
 
         Random rand = new Random();
 
+        if (args.length != 1) {
+            throw new InvalidParameterException("Incorrect number of parameters for program");
+        }
+        
         Client client = new Client(args[0]);
 
         // Get list of available file servers from config.txt file
@@ -114,10 +106,10 @@ public class Client {
             else {
                 System.out.println(String.format("%s receives a failure from %s", client.id, selectedServer.id));
             }
+            echoSocket.close();
         }
+        
 
-        System.out.println("Exiting Client");
-
-        echoSocket.close();
+        System.out.println("Exiting Client");        
     }
 }
