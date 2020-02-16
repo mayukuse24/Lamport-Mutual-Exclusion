@@ -34,10 +34,6 @@ public class Node {
         }
     }
 
-    public void createTask() {
-
-    }
-
     public void send(Socket socket, int seqNo, String message) throws IOException {
         PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
 
