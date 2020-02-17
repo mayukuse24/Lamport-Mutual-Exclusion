@@ -7,6 +7,8 @@ import java.security.*;
 import java.time.Instant;
 import java.util.concurrent.*;
 
+import javax.naming.NameNotFoundException;
+
 public class Server extends Node {
     public static long externalTime;
     List<Node> serverList = new ArrayList<Node>();
@@ -22,7 +24,6 @@ public class Server extends Node {
     }
 
     public void loadConfig(String fileName) throws FileNotFoundException, IOException {
-
         BufferedReader inputBuffer = new BufferedReader(new FileReader(fileName));
         String line;
         String[] params;
@@ -42,6 +43,18 @@ public class Server extends Node {
         inputBuffer.close();
     }
 
+    public Node getNodeFromId(String nodeId) {
+        Node snode = null;
+
+        for (Node serverNode : this.serverList) {
+            if (serverNode.id.equals(nodeId)) {
+                snode = serverNode;
+            }
+        }
+
+        return snode;
+    }
+
     public static synchronized long getLogicalTimestamp() {
         return Long.max(Server.externalTime, Instant.now().toEpochMilli());
     }
@@ -50,29 +63,48 @@ public class Server extends Node {
         Server.externalTime = Long.max(Server.externalTime, time + 1);
     }
 
-    public List<Integer> createClusterEvent(String fileName) {
+    public Event createEvent(Node serverNode, Task task) {
         int seqNo;
+        long eventTimestamp;
+
+        // The synchronized should generate unique seqNo and in combination with timestamp
+        synchronized(this.fileToSentLock.get(task.fileName)) {
+            // Get timestamp for the message and the task
+            eventTimestamp = Server.getLogicalTimestamp();
+
+            seqNo = serverNode.fileToSentSeq.getOrDefault(task.fileName, 0);
+
+            serverNode.fileToSentSeq.put(task.fileName, seqNo + 1);
+        }
+
+        // Event associated with a Task. TODO: expand on Event concept
+        return new Event(eventTimestamp, seqNo);
+    }
+
+    public Event createClusterEvent(List<Node> nodesInCluster, Task task) {
+        int seqNo;
+        long eventTimestamp;
         List<Integer> seqNos = new ArrayList<Integer>();
 
-        // TODO: the synchronized should generate different seqNo for all servers to keep coupled with timestamp
-        synchronized(this.fileToSentLock.get(fileName)) {
-            // TODO: get timestamp for the message and the task here
+        // The synchronized should generate different seqNo for all servers to keep coupled with timestamp
+        synchronized(this.fileToSentLock.get(task.fileName)) {
+            // Get timestamp for the message and the task
+            eventTimestamp = Server.getLogicalTimestamp();
 
-            for (Node serverNode : this.serverList) {
-                seqNo = serverNode.fileToSentSeq.getOrDefault(fileName, 0);
+            for (Node serverNode : nodesInCluster) {
+                seqNo = serverNode.fileToSentSeq.getOrDefault(task.fileName, 0);
 
                 seqNos.add(seqNo);
 
-                serverNode.fileToSentSeq.put(fileName, seqNo + 1);    
+                serverNode.fileToSentSeq.put(task.fileName, seqNo + 1);    
             }
         }
 
-        return seqNos;
+        // Event associated with a Task. TODO: expand on Event concept
+        return new Event(eventTimestamp, seqNos); 
     }
 
-    public void broadcastToCluster(List<Socket> serverSockets, String fileName, String message) throws IOException {
-        List<Integer> seqNos = createClusterEvent(fileName);
-
+    public void broadcastToCluster(List<Socket> serverSockets, List<Integer> seqNos, String message) throws IOException {
         for (int serverIndex = 0; serverIndex < this.serverList.size(); serverIndex++) {
             this.serverList.get(serverIndex)
                 .send(
@@ -108,6 +140,7 @@ public class Server extends Node {
         Server selfServer = new Server(args[0], args[1], Integer.parseInt(args[2]));
 
         final ExecutorService service = Executors.newFixedThreadPool(MAX_POOL_SIZE);
+
         Future<Integer> future = null;
 
         ServerSocket serverSocket = new ServerSocket(selfServer.port); // Listens on all ip addresses of host
@@ -124,8 +157,7 @@ public class Server extends Node {
 
             requestHandler callobj = new requestHandler(
                 clientSocket,
-                selfServer,
-                Instant.now().toEpochMilli() // Update this to use max() local and recieved time
+                selfServer
             );
 
             // Call thread to handle client connection
@@ -140,122 +172,43 @@ public class Server extends Node {
 
 class requestHandler implements Callable<Integer> {
 
-    private Socket requestSocket;
+    private Socket requesterSocket;
     Server owner;
-    String senderId,
-        message,
-        senderType,
-        fileName;
-    long timestamp;
+    String requesterId,
+        requesterType,
+        fileName; // TODO: remove this later
 
-    public requestHandler(Socket sock, Server own, long ts) {
-        this.requestSocket = sock;
+    public requestHandler(Socket sock, Server own) {
+        this.requesterSocket = sock;
         this.owner = own;
-        this.timestamp = ts;
     }
 
-    private void parseRequest(String request) {
-        String[] params = request.split(":");
-
-        this.senderId = params[0];
-        this.message = params[1];
-        this.timestamp = Long.parseLong(params[3]);
-        this.senderType = "client";
-
-        for (Node server : this.owner.serverList) {
-            if (server.id.equals(this.senderId)) { // Checking if the request is from a file server or client
-                this.senderType = "server";
-            }
-        }
-    }
-
-    private void clientHandler() throws IOException, UnknownHostException, InterruptedException, Exception {
-        String taskMessage;
-        List<Socket> serverSockets = new ArrayList<Socket>();
-
-        for (Node server : this.owner.serverList) {
-            Socket serverSocket = new Socket(server.ip, server.port);
-
-            serverSockets.add(serverSocket);
-        }
-
-        // Create task
-        Task task = new Task(Server.getLogicalTimestamp(), this.owner.id);
-
-        taskMessage = String.format("REQ:%s:%s:%s:%s:%s", // TODO: verify message format
-            this.owner.id,
-            this.message,
-            "SN", // TODO: fix this
-            this.fileName,
-            this.timestamp
-        );
-
-        // Send REQ for task to servers
-        this.owner.broadcastToCluster(serverSockets, this.fileName, taskMessage);
-
-        // Add task to specific resource queue prioritized by timestamp
-        this.owner.fileToTaskQueue.get(fileName).add(task);
-
-        // Wait for ACK from everyone before processing task
-        this.owner.broadcastConfirmation(serverSockets, this.fileName);
-
-        // Wait for task to reach head of queue
-        while (!this.owner.fileToTaskQueue.get(this.fileName).peek().equals(task)) {
-            Thread.sleep(10); // TODO: switch to wait-notify pattern
-        }
-
-        // Process task. Currently in mutual exclusion zone
-        task.execute();
-
-        taskMessage = String.format("REL:%s:%s:%s:%s:%s", // TODO: verify message format
-            this.owner.id,
-            this.message,
-            "SN", // TODO: fix this
-            this.fileName,
-            this.timestamp
-        );
-
-        // Send REL
-        this.owner.broadcastToCluster(serverSockets, this.fileName, taskMessage);
-
-        // Wait for ACK from everyone
-        this.owner.broadcastConfirmation(serverSockets, this.fileName);
-
-        // Remove task from queue
-        if (!this.owner.fileToTaskQueue.get(this.fileName).poll().equals(task)) {
-            throw new Exception(String.format("Incorrect task removed from head of Queue %s", task));
-        }
-
-        // Cleanup sockets
-        for (Socket serverSocket : serverSockets) {
-            serverSocket.close();
-        }
-    }
-
-    private void serverHandler() {
-
+    private String[] parseRequest(String request) {
+        return request.split(":");
     }
 
     public Integer call() throws IOException {
-        PrintWriter out = new PrintWriter(this.requestSocket.getOutputStream(), true);
+        PrintWriter out = new PrintWriter(this.requesterSocket.getOutputStream(), true);
 
-        BufferedReader in = new BufferedReader(new InputStreamReader(this.requestSocket.getInputStream()));
+        BufferedReader reader = new BufferedReader(new InputStreamReader(this.requesterSocket.getInputStream()));
 
-        String recvLine;
+        String requestIdentifier = reader.readLine();
 
-        recvLine = in.readLine();
+        String[] params = requestIdentifier.split(":");
 
-        System.out.println(recvLine);
+        this.requesterType = params[0];
+        this.requesterId = params[1];
+        fileName = params[2];
+        Server.updateLogicalTimestamp(Long.parseLong(params[3]));
 
-        // Parse request to figure out if client or server request
-        this.parseRequest(recvLine);
+        System.out.println(this.requesterType);
 
         // Call function based on client or server
-        if (this.senderType.equals("client")) {
+        if (this.requesterType.equals("client")) {
             System.out.println("Request from client");
 
             try {
-                clientHandler();
+                this.clientHandler();
 
                 out.println("ACK");
             }
@@ -266,12 +219,157 @@ class requestHandler implements Callable<Integer> {
             }
             
         }
-        else if (this.senderType.equals("server")) {
+        else if (this.requesterType.equals("server")) {
             System.out.println("Request from server");
 
-            serverHandler();
+            this.serverHandler(fileName);
         }
 
         return 1;
+    }
+
+    private void clientHandler() throws IOException, UnknownHostException, InterruptedException, Exception {
+        String taskMessage;
+        Event clusterEvent;
+        List<Socket> serverSockets = new ArrayList<Socket>();
+
+        BufferedReader reader = new BufferedReader(new InputStreamReader(this.requesterSocket.getInputStream()));
+
+        String clientRequest = reader.readLine();
+
+        // Parse request to obtain required parameters for task
+        String[] requestParams = this.parseRequest(clientRequest);
+
+        // Create task with message to be appended to file
+        Task task = new Task(this.owner.id, requestParams[4], requestParams[3]);
+
+        for (Node server : this.owner.serverList) {
+            Socket serverSocket = new Socket(server.ip, server.port);
+
+            // TODO: shift this to Node class later (connect and listen methods)
+            PrintWriter writer = new PrintWriter(serverSocket.getOutputStream(), true);
+
+            // Identify as a server. TODO: change lock structure and remove filename later
+            writer.println(String.format("server:%s:%s", this.owner.id, task.fileName));
+
+            serverSockets.add(serverSocket);
+        }
+        
+        // Generate seqNos and attach timestamp to task.
+        clusterEvent = this.owner.createClusterEvent(this.owner.serverList, task);
+
+        // Attach event timestamp to task
+        task.timestamp = clusterEvent.timestamp;
+        
+        // Add task to specific resource queue prioritized by timestamp
+        this.owner.fileToTaskQueue.get(task.fileName).add(task);
+
+        // Create request for replica servers in cluster
+        taskMessage = String.format("REQ:%s:%s:%s:%s:%s",
+            this.requesterId,
+            task.ownerId,
+            task.message,
+            task.fileName,
+            clusterEvent.timestamp // Needs to reflect time related to sequence no. (not necessarily task time)
+        );
+
+        // Send REQ for task to servers
+        this.owner.broadcastToCluster(serverSockets, clusterEvent.sequenceNos, taskMessage);
+
+        // Wait for ACK from everyone before processing task
+        this.owner.broadcastConfirmation(serverSockets, task.fileName);
+
+        // Wait for task to reach head of queue
+        while (!this.owner.fileToTaskQueue.get(task.fileName).peek().equals(task)) {
+            Thread.sleep(10); // TODO: switch to wait-notify pattern
+        }
+
+        // Process task. Currently in mutual exclusion zone
+        task.execute();
+
+        // Generate seqNos and attach timestamp to task
+        clusterEvent = this.owner.createClusterEvent(this.owner.serverList, task);
+
+        // Create release for replica servers in cluster
+        taskMessage = String.format("REL:%s:%s:%s:%s:%s",
+            this.requesterId,
+            task.ownerId,
+            task.message,
+            task.fileName,
+            clusterEvent.timestamp
+        );
+
+        // Send release to all servers in cluster
+        this.owner.broadcastToCluster(serverSockets, clusterEvent.sequenceNos, taskMessage);
+
+        // Wait for ACK from everyone
+        this.owner.broadcastConfirmation(serverSockets, task.fileName);
+
+        // Remove task from queue
+        if (!this.owner.fileToTaskQueue.get(task.fileName).poll().equals(task)) {
+            throw new Exception(String.format("Incorrect task removed from head of Queue %s", task));
+        }
+
+        // Cleanup sockets
+        for (Socket serverSocket : serverSockets) {
+            serverSocket.close();
+        }
+    }
+
+    private void serverHandler(String fileName) throws Exception{
+        Event clusterEvent;
+
+        // Get the server information that sent the request
+        Node requesterNode = this.owner.getNodeFromId(this.requesterId);
+
+        // Get the task request
+        String serverRequest = requesterNode.receive(this.requesterSocket, fileName);
+
+        // Parse task request
+        String[] requestParams = this.parseRequest(serverRequest);
+
+        if (requesterNode.equals(null)) {
+            throw new NameNotFoundException(String.format("Could not find server in config with id=%s", requestParams[2]));
+        }
+
+        // Create task
+        Task task = new Task(requesterNode.id, fileName, requestParams[3]);
+
+        // Set task timestamp. This timestamp depends on server that created task. Therefore use time provided in request
+        task.timestamp = Long.parseLong(requestParams[5]); 
+
+        // Add task to queue
+        this.owner.fileToTaskQueue.get(task.fileName).add(task);
+
+        // Create event containing sequence no. and timestamp
+        clusterEvent = this.owner.createEvent(requesterNode, task);
+
+        // Send ACK Response
+        requesterNode.send(this.requesterSocket, clusterEvent.sequenceNos.get(0), "ACK");
+
+        // Wait for Release message
+        String releaseMessage = requesterNode.receive(this.requesterSocket, task.fileName);
+        
+        // Wait for task to reach head of queue
+        while (!this.owner.fileToTaskQueue.get(this.fileName).peek().equals(task)) {
+            Thread.sleep(10); // TODO: switch to wait-notify pattern
+        }
+
+        // Execute task
+        task.execute();
+
+        // Remove task from queue
+        if (!this.owner.fileToTaskQueue.get(this.fileName).poll().equals(task)) {
+            throw new Exception(String.format("Incorrect task removed from head of Queue %s", task));
+        }
+
+        // Create event containing sequence no. and timestamp
+        clusterEvent = this.owner.createEvent(requesterNode, task);
+
+        // Send ACK Response
+        requesterNode.send(this.requesterSocket, clusterEvent.sequenceNos.get(0), "ACK");
+
+        // Cleanup socket
+        this.requesterSocket.close();
     }
 }

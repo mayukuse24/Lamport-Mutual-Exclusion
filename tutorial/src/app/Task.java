@@ -1,17 +1,22 @@
 package app;
 
-import java.util.*; 
+import java.io.*;
+import java.util.*;
 
 public class Task {
-    long timestamp;
-    String ownerId;
+    public long timestamp;
+    String ownerId,
+        fileName,
+        message;
 
-    public Task(long ts, String oid) {
-        this.timestamp = ts;
+    public Task(String oid, String fname, String message) {
         this.ownerId = oid;
+        this.fileName = fname;
+        this.message = message;
     }
 
-    public void execute() {
+    public void execute() throws IOException {
+        // TODO: handle failure when file does not exist
         PrintWriter fileObj = new PrintWriter(new FileWriter(this.fileName, true));
 
         fileObj.println(this.message);

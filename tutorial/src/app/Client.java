@@ -73,16 +73,19 @@ public class Client extends Node {
             in = new BufferedReader(new InputStreamReader(echoSocket.getInputStream()));
 
             // Pick a random file to append message
+            String message = String.format("client %s message %s", client.id, msgNo);
             String fileName = fileList[rand.nextInt(fileList.length)];
 
             Instant instant = Instant.now();
 
+            // Identify as a client
+            out.print(String.format("client:%s:%s:%s", client.id, fileName, instant.toEpochMilli()));
+
             appendRequest = String.format(
-                "%s requests:client %s message #%s -- server %s: for file #%s at time: %s",
+                "REQ:%s:%s:%s:%s:%s",
                 client.id,
-                client.id,
-                msgNo,
                 selectedServer.id,
+                message,
                 fileName,
                 instant.toEpochMilli()
             );
