@@ -79,7 +79,7 @@ public class Client extends Node {
             Instant instant = Instant.now();
 
             // Identify as a client
-            out.print(String.format("client:%s:%s:%s", client.id, fileName, instant.toEpochMilli()));
+            out.println(String.format("client:%s:%s:%s", client.id, fileName, instant.toEpochMilli()));
 
             appendRequest = String.format(
                 "REQ:%s:%s:%s:%s:%s",
@@ -92,12 +92,7 @@ public class Client extends Node {
 
             System.out.println(appendRequest);
 
-            try {
-                out.println(appendRequest);
-            }
-            catch (Exception e) {
-                System.out.println(String.format("%s receives a failure from %s", client.id, selectedServer.id));
-            }                 
+            out.println(appendRequest);              
 
             String response = in.readLine();
 
@@ -107,11 +102,10 @@ public class Client extends Node {
                 );
             }
             else {
-                System.out.println(String.format("%s receives a failure from %s", client.id, selectedServer.id));
+                System.out.println(String.format("%s receives a failure from %s: %s", client.id, selectedServer.id, response));
             }
             echoSocket.close();
         }
-        
 
         System.out.println("Exiting Client");        
     }

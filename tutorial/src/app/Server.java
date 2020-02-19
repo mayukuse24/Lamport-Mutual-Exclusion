@@ -186,8 +186,8 @@ class requestHandler implements Callable<Integer> {
         return request.split(":");
     }
 
-    public Integer call() throws IOException {
-        PrintWriter out = new PrintWriter(this.requesterSocket.getOutputStream(), true);
+    public Integer call() throws IOException, FileNotFoundException {
+        PrintWriter writer = new PrintWriter(this.requesterSocket.getOutputStream(), true);
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(this.requesterSocket.getInputStream()));
 
@@ -198,6 +198,8 @@ class requestHandler implements Callable<Integer> {
         this.requesterType = params[0];
         this.requesterId = params[1];
         String fileName = params[2];
+
+        // Update external event time based on request timestamp
         Server.updateLogicalTimestamp(Long.parseLong(params[3]));
 
         System.out.println(this.requesterType);
@@ -206,22 +208,40 @@ class requestHandler implements Callable<Integer> {
         if (this.requesterType.equals("client")) {
             System.out.println("Request from client");
 
+            // Check file exists in expected file list
+            if (!Arrays.asList(Node.fileList).contains(fileName)) {
+                System.out.println(String.format("File %s does not exist in system", fileName));
+
+                writer.println("ERR: file not found");
+
+                return 0;
+            }
+
             try {
                 this.clientHandler();
 
-                out.println("ACK");
+                writer.println("ACK");
             }
             catch (Exception e) {
-                System.out.println(String.format("Error while handling client request: %s", recvLine));
+                System.out.println(String.format("Error while handling client request: %s", requestIdentifier));
 
-                out.println("ERR");
+                writer.println("ERR");
+
+                return 0;
             }
             
         }
         else if (this.requesterType.equals("server")) {
             System.out.println("Request from server");
 
-            this.serverHandler(fileName);
+            try {
+                this.serverHandler(fileName);
+            }
+            catch (Exception e) {
+                System.out.println(String.format("Failed to handle request from server: %s", this.requesterId));
+
+                return 0;
+            }
         }
 
         return 1;
@@ -315,7 +335,7 @@ class requestHandler implements Callable<Integer> {
         }
     }
 
-    private void serverHandler(String fileName) throws Exception{
+    private void serverHandler(String fileName) throws Exception {
         Event clusterEvent;
 
         // Get the server information that sent the request
