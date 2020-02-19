@@ -175,8 +175,7 @@ class requestHandler implements Callable<Integer> {
     private Socket requesterSocket;
     Server owner;
     String requesterId,
-        requesterType,
-        fileName; // TODO: remove this later
+        requesterType;
 
     public requestHandler(Socket sock, Server own) {
         this.requesterSocket = sock;
@@ -198,7 +197,7 @@ class requestHandler implements Callable<Integer> {
 
         this.requesterType = params[0];
         this.requesterId = params[1];
-        fileName = params[2];
+        String fileName = params[2];
         Server.updateLogicalTimestamp(Long.parseLong(params[3]));
 
         System.out.println(this.requesterType);
@@ -328,6 +327,7 @@ class requestHandler implements Callable<Integer> {
         // Parse task request
         String[] requestParams = this.parseRequest(serverRequest);
 
+        // Check if server present in config
         if (requesterNode.equals(null)) {
             throw new NameNotFoundException(String.format("Could not find server in config with id=%s", requestParams[2]));
         }
@@ -351,7 +351,7 @@ class requestHandler implements Callable<Integer> {
         String releaseMessage = requesterNode.receive(this.requesterSocket, task.fileName);
         
         // Wait for task to reach head of queue
-        while (!this.owner.fileToTaskQueue.get(this.fileName).peek().equals(task)) {
+        while (!this.owner.fileToTaskQueue.get(task.fileName).peek().equals(task)) {
             Thread.sleep(10); // TODO: switch to wait-notify pattern
         }
 
@@ -359,7 +359,7 @@ class requestHandler implements Callable<Integer> {
         task.execute();
 
         // Remove task from queue
-        if (!this.owner.fileToTaskQueue.get(this.fileName).poll().equals(task)) {
+        if (!this.owner.fileToTaskQueue.get(task.fileName).poll().equals(task)) {
             throw new Exception(String.format("Incorrect task removed from head of Queue %s", task));
         }
 
