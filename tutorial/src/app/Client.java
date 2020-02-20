@@ -78,7 +78,7 @@ public class Client extends Node {
             String message = String.format("client %s message %s -- server %s", client.id, msgNo, selectedServer.id);
             String fileName = fileList[rand.nextInt(fileList.length)];
 
-            Instant instant = Instant.now();
+            instant = Instant.now();
 
             // Identify as a client
             out.println(String.format("client:%s:%s:%s", client.id, fileName, instant.toEpochMilli()));
