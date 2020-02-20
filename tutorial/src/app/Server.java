@@ -205,7 +205,7 @@ class requestHandler implements Callable<Integer> {
         // Update external event time based on request timestamp
         Server.updateLogicalTimestamp(Long.parseLong(params[3]));
 
-        System.out.println(this.requesterType);
+        System.out.println(requestIdentifier);
 
         // Call function based on client or server
         if (this.requesterType.equals("client")) {
@@ -258,6 +258,8 @@ class requestHandler implements Callable<Integer> {
         List<Socket> serverSockets = new ArrayList<Socket>();
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(this.requesterSocket.getInputStream()));
+
+        System.out.println("Reading request from client");
 
         String clientRequest = reader.readLine();
 

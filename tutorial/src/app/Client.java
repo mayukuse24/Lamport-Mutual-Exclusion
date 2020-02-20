@@ -37,8 +37,8 @@ public class Client extends Node {
     }
 
     public static void main(String[] args) throws Exception {
-        PrintWriter out;
-        BufferedReader in;
+        PrintWriter writer;
+        BufferedReader reader;
         String appendRequest;
         String[] fileList = {"f1", "f2", "f3", "f4"};
 
@@ -57,8 +57,6 @@ public class Client extends Node {
         // Get list of available file servers from config.txt file TODO: remove hard coded values
         client.loadConfig("config.txt");
 
-        System.out.println(client.serverList);
-
         Socket echoSocket = null;
 
         for (int msgNo = 1; msgNo <= 10; msgNo++) {
@@ -70,9 +68,9 @@ public class Client extends Node {
 
             echoSocket = new Socket(selectedServer.ip, selectedServer.port);
 
-            out = new PrintWriter(echoSocket.getOutputStream(), true);
+            writer = new PrintWriter(echoSocket.getOutputStream(), true);
     
-            in = new BufferedReader(new InputStreamReader(echoSocket.getInputStream()));
+            reader = new BufferedReader(new InputStreamReader(echoSocket.getInputStream()));
 
             // Pick a random file to append message
             String message = String.format("client %s message %s -- server %s", client.id, msgNo, selectedServer.id);
@@ -81,7 +79,7 @@ public class Client extends Node {
             instant = Instant.now();
 
             // Identify as a client
-            out.println(String.format("client:%s:%s:%s", client.id, fileName, instant.toEpochMilli()));
+            writer.println(String.format("client:%s:%s:%s", client.id, fileName, instant.toEpochMilli()));
 
             appendRequest = String.format(
                 "REQ:%s:%s:%s:%s:%s",
@@ -102,9 +100,9 @@ public class Client extends Node {
                 )
             );
 
-            out.println(appendRequest);              
+            writer.println(appendRequest);              
 
-            String response = in.readLine();
+            String response = reader.readLine();
 
             if (response.equals("ACK")) {
                 System.out.println(
