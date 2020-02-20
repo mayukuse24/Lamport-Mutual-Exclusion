@@ -19,7 +19,7 @@ public class Server extends Node {
         super(Id, Ip, P);
 
         for (String fileName : Node.fileList) {
-            this.fileToTaskQueue.put(fileName, new PriorityBlockingQueue<Task>());
+            this.fileToTaskQueue.put(fileName, new PriorityBlockingQueue<Task>(20, new TaskComparator()));
         }
     }
 
