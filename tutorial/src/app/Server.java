@@ -104,22 +104,22 @@ public class Server extends Node {
         return new Event(eventTimestamp, seqNos); 
     }
 
-    public void broadcastToCluster(List<Socket> serverSockets, List<Integer> seqNos, String message) throws IOException {
+    public void broadcastToCluster(List<Channel> serverChannels, List<Integer> seqNos, String message) throws IOException {
         for (int serverIndex = 0; serverIndex < this.serverList.size(); serverIndex++) {
             this.serverList.get(serverIndex)
                 .send(
-                    serverSockets.get(serverIndex),
+                    serverChannels.get(serverIndex),
                     seqNos.get(serverIndex),
                     message
                 );
         }
     }
 
-    public void broadcastConfirmation(List<Socket> serverSockets, String fileName) throws IOException, Exception {
+    public void broadcastConfirmation(List<Channel> serverChannels, String fileName) throws IOException, Exception {
         String response;
 
         for (int serverIndex = 0; serverIndex < this.serverList.size(); serverIndex++) {
-            response = this.serverList.get(serverIndex).receive(serverSockets.get(serverIndex), fileName);
+            response = this.serverList.get(serverIndex).receive(serverChannels.get(serverIndex), fileName);
 
             if (!response.equals("ACK")) {
                 throw new Exception(String.format("Server responded with error when requesting for serverId=%s",
@@ -151,6 +151,8 @@ public class Server extends Node {
         while (true) {
             Socket clientSocket = serverSocket.accept();
 
+            Channel clientChannel = new Channel(clientSocket);
+
             System.out.println(String.format("Received connection request from ip=%s, port=%s",
                 clientSocket.getInetAddress(),
                 clientSocket.getPort()
@@ -159,7 +161,7 @@ public class Server extends Node {
             System.out.println("Received new client connection");
 
             requestHandler callobj = new requestHandler(
-                clientSocket,
+                clientChannel,
                 selfServer
             );
 
@@ -175,13 +177,13 @@ public class Server extends Node {
 
 class requestHandler implements Callable<Integer> {
 
-    private Socket requesterSocket;
+    private Channel requesterChannel;
     Server owner;
     String requesterId,
         requesterType;
 
-    public requestHandler(Socket sock, Server own) {
-        this.requesterSocket = sock;
+    public requestHandler(Channel chnl, Server own) {
+        this.requesterChannel = chnl;
         this.owner = own;
     }
 
@@ -190,11 +192,7 @@ class requestHandler implements Callable<Integer> {
     }
 
     public Integer call() throws IOException, FileNotFoundException {
-        PrintWriter writer = new PrintWriter(this.requesterSocket.getOutputStream(), true);
-
-        BufferedReader reader = new BufferedReader(new InputStreamReader(this.requesterSocket.getInputStream()));
-
-        String requestIdentifier = reader.readLine();
+        String requestIdentifier = this.requesterChannel.recv();
 
         String[] params = requestIdentifier.split(":");
 
@@ -215,22 +213,22 @@ class requestHandler implements Callable<Integer> {
             if (!Arrays.asList(Node.fileList).contains(fileName)) {
                 System.out.println(String.format("File %s does not exist in system", fileName));
 
-                writer.println("ERR: file not found");
+                this.requesterChannel.send("ERR: file not found");
 
                 return 0;
             }
 
             try {
-                this.clientHandler(reader);
+                this.clientHandler();
 
                 System.out.println(String.format("server %s sends a successful ack to client %s", this.owner.id, this.requesterId));
 
-                writer.println("ACK");
+                this.requesterChannel.send("ACK");
             }
             catch (Exception e) {
-                System.out.println(String.format("Error while handling client request: %s", requestIdentifier));
+                System.out.println(String.format("Error while handling client request: %s", e));
 
-                writer.println("ERR");
+                this.requesterChannel.send("ERR");
 
                 return 0;
             }
@@ -243,7 +241,7 @@ class requestHandler implements Callable<Integer> {
                 this.serverHandler(fileName);
             }
             catch (Exception e) {
-                System.out.println(String.format("Failed to handle request from server: %s", this.requesterId));
+                System.out.println(String.format("Failed to handle request from server %s: %s", this.requesterId, e));
 
                 return 0;
             }
@@ -252,16 +250,16 @@ class requestHandler implements Callable<Integer> {
         return 1;
     }
 
-    private void clientHandler(BufferedReader reader) throws IOException, UnknownHostException, InterruptedException, Exception {
+    private void clientHandler() throws IOException, UnknownHostException, InterruptedException, Exception {
         String taskMessage;
         Event clusterEvent;
-        List<Socket> serverSockets = new ArrayList<Socket>();
+        List<Channel> serverChannels = new ArrayList<Channel>();
 
         // BufferedReader reader = new BufferedReader(new InputStreamReader(this.requesterSocket.getInputStream()));
 
         System.out.println("Reading request from client");
 
-        String clientRequest = reader.readLine();
+        String clientRequest = this.requesterChannel.recv();
 
         System.out.println("Read request from client");
 
@@ -281,15 +279,12 @@ class requestHandler implements Callable<Integer> {
         Task task = new Task(this.owner.id, requestParams[4], requestParams[3]);
 
         for (Node server : this.owner.serverList) {
-            Socket serverSocket = new Socket(server.ip, server.port);
-
-            // TODO: shift this to Node class later (connect and listen methods)
-            PrintWriter writer = new PrintWriter(serverSocket.getOutputStream(), true);
+            Channel chnl = new Channel(server.ip, server.port);
 
             // Identify as a server. TODO: change lock structure and remove filename later
-            writer.println(String.format("server:%s:%s", this.owner.id, task.fileName));
+            chnl.send(String.format("server:%s:%s", this.owner.id, task.fileName));
 
-            serverSockets.add(serverSocket);
+            serverChannels.add(chnl);
         }
         
         // Generate seqNos and attach timestamp to task.
@@ -313,10 +308,10 @@ class requestHandler implements Callable<Integer> {
         System.out.println(String.format("Sending %s", taskMessage));
 
         // Send REQ for task to servers
-        this.owner.broadcastToCluster(serverSockets, clusterEvent.sequenceNos, taskMessage);
+        this.owner.broadcastToCluster(serverChannels, clusterEvent.sequenceNos, taskMessage);
 
         // Wait for ACK from everyone before processing task
-        this.owner.broadcastConfirmation(serverSockets, task.fileName);
+        this.owner.broadcastConfirmation(serverChannels, task.fileName);
 
         // Wait for task to reach head of queue
         while (!this.owner.fileToTaskQueue.get(task.fileName).peek().equals(task)) {
@@ -341,10 +336,10 @@ class requestHandler implements Callable<Integer> {
         System.out.println(String.format("Sending %s", taskMessage));
 
         // Send release to all servers in cluster
-        this.owner.broadcastToCluster(serverSockets, clusterEvent.sequenceNos, taskMessage);
+        this.owner.broadcastToCluster(serverChannels, clusterEvent.sequenceNos, taskMessage);
 
         // Wait for ACK from everyone
-        this.owner.broadcastConfirmation(serverSockets, task.fileName);
+        this.owner.broadcastConfirmation(serverChannels, task.fileName);
 
         // Remove task from queue
         if (!this.owner.fileToTaskQueue.get(task.fileName).poll().equals(task)) {
@@ -352,8 +347,8 @@ class requestHandler implements Callable<Integer> {
         }
 
         // Cleanup sockets
-        for (Socket serverSocket : serverSockets) {
-            serverSocket.close();
+        for (Channel chnl : serverChannels) {
+            chnl.close();
         }
     }
 
@@ -364,7 +359,7 @@ class requestHandler implements Callable<Integer> {
         Node requesterNode = this.owner.getNodeFromId(this.requesterId);
 
         // Get the task request
-        String serverRequest = requesterNode.receive(this.requesterSocket, fileName);
+        String serverRequest = requesterNode.receive(this.requesterChannel, fileName);
 
         // Parse task request
         String[] requestParams = this.parseRequest(serverRequest);
@@ -387,10 +382,10 @@ class requestHandler implements Callable<Integer> {
         clusterEvent = this.owner.createEvent(requesterNode, task);
 
         // Send ACK Response
-        requesterNode.send(this.requesterSocket, clusterEvent.sequenceNos.get(0), "ACK");
+        requesterNode.send(this.requesterChannel, clusterEvent.sequenceNos.get(0), "ACK");
 
         // Wait for Release message
-        String releaseMessage = requesterNode.receive(this.requesterSocket, task.fileName);
+        String releaseMessage = requesterNode.receive(this.requesterChannel, task.fileName);
         
         // Wait for task to reach head of queue
         while (!this.owner.fileToTaskQueue.get(task.fileName).peek().equals(task)) {
@@ -409,9 +404,9 @@ class requestHandler implements Callable<Integer> {
         clusterEvent = this.owner.createEvent(requesterNode, task);
 
         // Send ACK Response
-        requesterNode.send(this.requesterSocket, clusterEvent.sequenceNos.get(0), "ACK");
+        requesterNode.send(this.requesterChannel, clusterEvent.sequenceNos.get(0), "ACK");
 
         // Cleanup socket
-        this.requesterSocket.close();
+        this.requesterChannel.close();
     }
 }

@@ -1,7 +1,6 @@
 package app;
 
 import java.io.*;
-import java.net.*;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -34,16 +33,12 @@ public class Node {
         }
     }
 
-    public void send(Socket socket, int seqNo, String message) throws IOException {
-        PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
-
-        writer.println(String.format("%s:%s", seqNo, message));
+    public void send(Channel chnl, int seqNo, String message) throws IOException {
+        chnl.send(String.format("%s:%s", seqNo, message));
     }
 
-    public String receive(Socket socket, String fileName) throws IOException, InterruptedException {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-
-        String response = reader.readLine();
+    public String receive(Channel chnl, String fileName) throws IOException, InterruptedException {
+        String response = chnl.recv();
 
         // Split only for first occurrence of delimiter
         String[] params = response.split(":", 2);
