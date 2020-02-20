@@ -45,7 +45,7 @@ public class Client extends Node {
 
         Random rand = new Random();
 
-        if (args.length >= 1) {
+        if (args.length < 1) {
             throw new InvalidParameterException("Incorrect number of parameters for program");
         }
         
