@@ -41,14 +41,20 @@ public class Client extends Node {
         BufferedReader reader;
         String appendRequest;
         String[] fileList = {"f1", "f2", "f3", "f4"};
+        int totalMsgs = 10;
 
         Random rand = new Random();
 
-        if (args.length != 1) {
+        if (args.length >= 1) {
             throw new InvalidParameterException("Incorrect number of parameters for program");
         }
         
         Client client = new Client(args[0]);
+
+        if (args.length == 2) {
+            totalMsgs = Integer.parseInt(args[1]);
+        }
+        
 
         Instant instant = Instant.now();
 
@@ -59,7 +65,7 @@ public class Client extends Node {
 
         Socket echoSocket = null;
 
-        for (int msgNo = 1; msgNo <= 10; msgNo++) {
+        for (int msgNo = 1; msgNo <= totalMsgs; msgNo++) {
             Thread.sleep(rand.nextInt(1000)); // Sleep for atmost 1 second
 
             // Select random server for sending append request
