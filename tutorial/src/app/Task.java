@@ -17,7 +17,7 @@ public class Task {
 
     public void execute() throws IOException {
         // TODO: handle failure when file does not exist
-        PrintWriter fileObj = new PrintWriter(new FileWriter(this.fileName, true));
+        PrintWriter fileObj = new PrintWriter(new FileWriter("files/" + this.fileName, true));
 
         fileObj.println(this.message);
 

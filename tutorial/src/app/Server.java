@@ -68,7 +68,7 @@ public class Server extends Node {
         long eventTimestamp;
 
         // The synchronized should generate unique seqNo and in combination with timestamp
-        synchronized(this.fileToSentLock.get(task.fileName)) {
+        synchronized(serverNode.fileToSentLock.get(task.fileName)) {
             // Get timestamp for the message and the task
             eventTimestamp = Server.getLogicalTimestamp();
 
@@ -83,15 +83,15 @@ public class Server extends Node {
 
     public Event createClusterEvent(List<Node> nodesInCluster, Task task) {
         int seqNo;
-        long eventTimestamp;
+        long eventTimestamp = Server.getLogicalTimestamp();
         List<Integer> seqNos = new ArrayList<Integer>();
 
-        // The synchronized should generate different seqNo for all servers to keep coupled with timestamp
-        synchronized(this.fileToSentLock.get(task.fileName)) {
-            // Get timestamp for the message and the task
-            eventTimestamp = Server.getLogicalTimestamp();
-
-            for (Node serverNode : nodesInCluster) {
+        for (Node serverNode : nodesInCluster) {
+            // The synchronized should generate different seqNo for all servers to keep coupled with timestamp
+            synchronized(serverNode.fileToSentLock.get(task.fileName)) {
+                // Get timestamp for the message and the task
+                eventTimestamp = Server.getLogicalTimestamp();
+            
                 seqNo = serverNode.fileToSentSeq.getOrDefault(task.fileName, 0);
 
                 seqNos.add(seqNo);
@@ -129,15 +129,18 @@ public class Server extends Node {
     }
 
     public static void main(String[] args) throws IOException {
-        int MAX_POOL_SIZE = 3;
-
-        System.out.println("Server Started");
+        int MAX_POOL_SIZE = 7;
 
         if (args.length != 3) {
             throw new InvalidParameterException("Required parameters <servername> <ip> <port>");
         }
 
         Server selfServer = new Server(args[0], args[1], Integer.parseInt(args[2]));
+
+        Instant instant = Instant.now();
+
+        // Log server start
+        System.out.println(String.format("Server %s starts at time: %s", selfServer.id, instant.toEpochMilli()));
 
         final ExecutorService service = Executors.newFixedThreadPool(MAX_POOL_SIZE);
 
@@ -220,6 +223,8 @@ class requestHandler implements Callable<Integer> {
             try {
                 this.clientHandler();
 
+                System.out.println(String.format("server %s sends a successful ack to client %s", this.owner.id, this.requesterId));
+
                 writer.println("ACK");
             }
             catch (Exception e) {
@@ -259,6 +264,15 @@ class requestHandler implements Callable<Integer> {
         // Parse request to obtain required parameters for task
         String[] requestParams = this.parseRequest(clientRequest);
 
+        System.out.println(
+            String.format("server %s receives: %s for file %s at time: %s",
+                this.owner.id,
+                requestParams[3], // message
+                requestParams[4], // file
+                Server.getLogicalTimestamp()
+            )
+        );
+
         // Create task with message to be appended to file
         Task task = new Task(this.owner.id, requestParams[4], requestParams[3]);
 
@@ -292,6 +306,8 @@ class requestHandler implements Callable<Integer> {
             clusterEvent.timestamp // Needs to reflect time related to sequence no. (not necessarily task time)
         );
 
+        System.out.println(String.format("Sending %s", taskMessage));
+
         // Send REQ for task to servers
         this.owner.broadcastToCluster(serverSockets, clusterEvent.sequenceNos, taskMessage);
 
@@ -317,6 +333,8 @@ class requestHandler implements Callable<Integer> {
             task.fileName,
             clusterEvent.timestamp
         );
+
+        System.out.println(String.format("Sending %s", taskMessage));
 
         // Send release to all servers in cluster
         this.owner.broadcastToCluster(serverSockets, clusterEvent.sequenceNos, taskMessage);

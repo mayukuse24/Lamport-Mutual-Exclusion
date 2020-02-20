@@ -37,8 +37,6 @@ public class Client extends Node {
     }
 
     public static void main(String[] args) throws Exception {
-        System.out.println("Client Started");
-
         PrintWriter out;
         BufferedReader in;
         String appendRequest;
@@ -52,7 +50,11 @@ public class Client extends Node {
         
         Client client = new Client(args[0]);
 
-        // Get list of available file servers from config.txt file
+        Instant instant = Instant.now();
+
+        System.out.println(String.format("Client %s starts at time: %s", client.id, instant.toEpochMilli()));
+
+        // Get list of available file servers from config.txt file TODO: remove hard coded values
         client.loadConfig("config.txt");
 
         System.out.println(client.serverList);
@@ -73,7 +75,7 @@ public class Client extends Node {
             in = new BufferedReader(new InputStreamReader(echoSocket.getInputStream()));
 
             // Pick a random file to append message
-            String message = String.format("client %s message %s", client.id, msgNo);
+            String message = String.format("client %s message %s -- server %s", client.id, msgNo, selectedServer.id);
             String fileName = fileList[rand.nextInt(fileList.length)];
 
             Instant instant = Instant.now();
@@ -90,7 +92,15 @@ public class Client extends Node {
                 instant.toEpochMilli()
             );
 
-            System.out.println(appendRequest);
+            // Log client request
+            System.out.println(
+                String.format("client %s requests: %s for file %s at time: %s",
+                    client.id,
+                    message,
+                    fileName,
+                    instant.toEpochMilli()
+                )
+            );
 
             out.println(appendRequest);              
 
@@ -107,6 +117,6 @@ public class Client extends Node {
             echoSocket.close();
         }
 
-        System.out.println("Exiting Client");        
+        System.out.println(String.format("client %s gracefully shuts down", client.id));        
     }
 }

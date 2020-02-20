@@ -14,7 +14,7 @@ public class Node {
     public Map<String, Object> fileToSentLock;
     public Map<String, Object> fileToRecvLock;
 
-    public Node(String Id) { // Constuctor for client
+    public Node(String Id) { // Constructor for client
         this.id = Id;
     }
 
