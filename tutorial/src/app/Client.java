@@ -54,7 +54,6 @@ public class Client extends Node {
         if (args.length == 2) {
             totalMsgs = Integer.parseInt(args[1]);
         }
-        
 
         Instant instant = Instant.now();
 

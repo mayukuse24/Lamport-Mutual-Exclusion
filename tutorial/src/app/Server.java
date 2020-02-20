@@ -142,6 +142,9 @@ public class Server extends Node {
         // Log server start
         System.out.println(String.format("Server %s starts at time: %s", selfServer.id, instant.toEpochMilli()));
 
+        // Get list of available file servers from config.txt file TODO: remove hard coded values
+        selfServer.loadConfig("config.txt");
+
         final ExecutorService service = Executors.newFixedThreadPool(MAX_POOL_SIZE);
 
         Future<Integer> future = null;
@@ -158,7 +161,7 @@ public class Server extends Node {
                 clientSocket.getPort()
             ));
 
-            System.out.println("Received new client connection");
+            System.out.println("Received new connection");
 
             requestHandler callobj = new requestHandler(
                 clientChannel,
