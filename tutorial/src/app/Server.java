@@ -282,7 +282,7 @@ class requestHandler implements Callable<Integer> {
             Channel chnl = new Channel(server.ip, server.port);
 
             // Identify as a server. TODO: change lock structure and remove filename later
-            chnl.send(String.format("server:%s:%s", this.owner.id, task.fileName));
+            chnl.send(String.format("server:%s:%s:%s", this.owner.id, task.fileName, Server.getLogicalTimestamp()));
 
             serverChannels.add(chnl);
         }
