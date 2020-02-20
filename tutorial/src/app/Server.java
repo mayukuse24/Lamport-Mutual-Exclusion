@@ -221,7 +221,7 @@ class requestHandler implements Callable<Integer> {
             }
 
             try {
-                this.clientHandler();
+                this.clientHandler(reader);
 
                 System.out.println(String.format("server %s sends a successful ack to client %s", this.owner.id, this.requesterId));
 
@@ -252,16 +252,18 @@ class requestHandler implements Callable<Integer> {
         return 1;
     }
 
-    private void clientHandler() throws IOException, UnknownHostException, InterruptedException, Exception {
+    private void clientHandler(BufferedReader reader) throws IOException, UnknownHostException, InterruptedException, Exception {
         String taskMessage;
         Event clusterEvent;
         List<Socket> serverSockets = new ArrayList<Socket>();
 
-        BufferedReader reader = new BufferedReader(new InputStreamReader(this.requesterSocket.getInputStream()));
+        // BufferedReader reader = new BufferedReader(new InputStreamReader(this.requesterSocket.getInputStream()));
 
         System.out.println("Reading request from client");
 
         String clientRequest = reader.readLine();
+
+        System.out.println("Read request from client");
 
         // Parse request to obtain required parameters for task
         String[] requestParams = this.parseRequest(clientRequest);
