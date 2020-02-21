@@ -274,7 +274,7 @@ class requestHandler implements Callable<Integer> {
         );
 
         // Create task with message to be appended to file
-        Task task = new Task(this.owner.id, requestParams[4], requestParams[3]);
+        Task task = new Task(this.owner.id, this.owner.id, requestParams[4], requestParams[3]);
 
         for (Node server : this.owner.serverList) {
             Channel chnl = new Channel(server.ip, server.port);
@@ -368,7 +368,7 @@ class requestHandler implements Callable<Integer> {
         }
 
         // Create task
-        Task task = new Task(requesterNode.id, fileName, requestParams[3]);
+        Task task = new Task(requesterNode.id, this.owner.id, fileName, requestParams[3]);
 
         // Set task timestamp. This timestamp depends on server that created task. Therefore use time provided in request
         task.timestamp = Long.parseLong(requestParams[5]); 
