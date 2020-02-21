@@ -12,6 +12,7 @@ import javax.naming.NameNotFoundException;
 public class Server extends Node {
     public static long externalTime;
     List<Node> serverList = new ArrayList<Node>();
+
     Map<String, PriorityBlockingQueue<Task>> fileToTaskQueue =
         new ConcurrentHashMap<String, PriorityBlockingQueue<Task>>(Node.fileList.length);
 
@@ -258,13 +259,7 @@ class requestHandler implements Callable<Integer> {
         Event clusterEvent;
         List<Channel> serverChannels = new ArrayList<Channel>();
 
-        // BufferedReader reader = new BufferedReader(new InputStreamReader(this.requesterSocket.getInputStream()));
-
-        System.out.println("Reading request from client");
-
         String clientRequest = this.requesterChannel.recv();
-
-        System.out.println("Read request from client");
 
         // Parse request to obtain required parameters for task
         String[] requestParams = this.parseRequest(clientRequest);

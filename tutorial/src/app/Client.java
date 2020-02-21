@@ -55,6 +55,12 @@ public class Client extends Node {
             totalMsgs = Integer.parseInt(args[1]);
         }
 
+        // Prompt user to press enter before client starts. Useful when running via script
+        System.out.println("Press \"ENTER\" to continue...");
+        Scanner scanner = new Scanner(System.in);
+        scanner.nextLine();
+        scanner.close();
+
         Instant instant = Instant.now();
 
         System.out.println(String.format("Client %s starts at time: %s", client.id, instant.toEpochMilli()));
