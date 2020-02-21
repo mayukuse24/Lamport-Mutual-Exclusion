@@ -6,18 +6,22 @@ import java.util.*;
 public class Task {
     public long timestamp;
     String ownerId,
+        executorId,
         fileName,
         message;
 
-    public Task(String oid, String fname, String message) {
+    public Task(String oid, String eid, String fname, String message) {
         this.ownerId = oid;
+        this.executorId = eid;
         this.fileName = fname;
         this.message = message;
     }
 
     public void execute() throws IOException {
         // TODO: handle failure when file does not exist
-        PrintWriter fileObj = new PrintWriter(new FileWriter("files/" + this.fileName, true));
+        PrintWriter fileObj = new PrintWriter(
+            new FileWriter(String.format("files/%s/%s", this.executorId, this.fileName), true)
+        );
 
         fileObj.println(this.message);
 
