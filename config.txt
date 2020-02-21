@@ -1,3 +1,3 @@
-S1 dc12.utdallas.edu 10000
-S2 dc23.utdallas.edu 10000
-S3 dc35.utdallas.edu 10000
+S1 dc12.utdallas.edu 15000
+S2 dc23.utdallas.edu 15000
+S3 dc35.utdallas.edu 15000
