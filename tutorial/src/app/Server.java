@@ -1,8 +1,10 @@
 package app;
 
 import java.net.*;
+import java.rmi.UnexpectedException;
 import java.io.*;
 import java.util.*;
+import java.util.logging.*;
 import java.security.*;
 import java.time.Instant;
 import java.util.concurrent.*;
@@ -15,6 +17,10 @@ public class Server extends Node {
 
     Map<String, PriorityBlockingQueue<Task>> fileToTaskQueue =
         new ConcurrentHashMap<String, PriorityBlockingQueue<Task>>(Node.fileList.length);
+
+    private final static Logger LOGGER = Logger.getLogger(Applog.class.getName());
+    private static boolean SHUTDOWN = false;
+    private static ServerSocket serverSocket;
 
     public Server(String Id, String Ip, int P) {
         super(Id, Ip, P);
@@ -29,13 +35,13 @@ public class Server extends Node {
         String line;
         String[] params;
 
-        System.out.println("Loading servers from config file");
+        LOGGER.info("loading servers from config file");
 
         while ((line = inputBuffer.readLine()) != null) {
             params = line.split(" ");
 
             if (!params[0].equals(this.id)) { // Skip adding itself to the server list
-                System.out.println(String.format("Found server %s, ip=%s, port=%s", params[0], params[1], params[2]));
+                LOGGER.info(String.format("found server %s, ip=%s, port=%s", params[0], params[1], params[2]));
 
                 this.serverList.add(new Node(params[0], params[1], Integer.parseInt(params[2])));
             }
@@ -116,14 +122,14 @@ public class Server extends Node {
         }
     }
 
-    public void broadcastConfirmation(List<Channel> serverChannels, String fileName) throws IOException, Exception {
+    public void broadcastConfirmation(List<Channel> serverChannels, String fileName) throws IOException, InterruptedException, UnexpectedException {
         String response;
 
         for (int serverIndex = 0; serverIndex < this.serverList.size(); serverIndex++) {
             response = this.serverList.get(serverIndex).receive(serverChannels.get(serverIndex), fileName);
 
             if (!response.equals("ACK")) {
-                throw new Exception(String.format("Server responded with error when requesting for serverId=%s",
+                throw new UnexpectedException(String.format("server responded with error when requesting for serverId=%s",
                     this.serverList.get(serverIndex).id));
             }
         }
@@ -133,15 +139,35 @@ public class Server extends Node {
         int MAX_POOL_SIZE = 7;
 
         if (args.length != 3) {
-            throw new InvalidParameterException("Required parameters <servername> <ip> <port>");
+            throw new InvalidParameterException("required parameters <servername> <ip> <port>");
         }
+
+        // Initialize logger
+        Applog.init();
+
+        // Catch interrupt signal to shutdown gracefully. NOTE: does not always work
+        Runtime.getRuntime().addShutdownHook(new Thread()
+        {
+            @Override
+            public void run()
+            {
+                LOGGER.info("shutting down server gracefully...");
+                LOGGER.severe("running shutdown hook");
+                try {
+                    Server.serverSocket.close();
+                }
+                catch (IOException ex) {
+                    LOGGER.log(Level.SEVERE, "unable to close server socket", ex);
+                }
+            }
+        });
 
         Server selfServer = new Server(args[0], args[1], Integer.parseInt(args[2]));
 
         Instant instant = Instant.now();
 
         // Log server start
-        System.out.println(String.format("Server %s starts at time: %s", selfServer.id, instant.toEpochMilli()));
+        LOGGER.info(String.format("server %s starts at time: %s", selfServer.id, instant.toEpochMilli()));
 
         // Get list of available file servers from config.txt file TODO: remove hard coded values
         selfServer.loadConfig("config.txt");
@@ -150,19 +176,17 @@ public class Server extends Node {
 
         Future<Integer> future = null;
 
-        ServerSocket serverSocket = new ServerSocket(selfServer.port); // Listens on all ip addresses of host
+        Server.serverSocket = new ServerSocket(selfServer.port); // Listens on all ip addresses of host
 
         while (true) {
-            Socket clientSocket = serverSocket.accept();
+            Socket clientSocket = Server.serverSocket.accept();
 
             Channel clientChannel = new Channel(clientSocket);
 
-            System.out.println(String.format("Received connection request from ip=%s, port=%s",
+            LOGGER.info(String.format("received connection request from ip=%s, port=%s",
                 clientSocket.getInetAddress(),
                 clientSocket.getPort()
             ));
-
-            System.out.println("Received new connection");
 
             requestHandler callobj = new requestHandler(
                 clientChannel,
@@ -172,10 +196,6 @@ public class Server extends Node {
             // Call thread to handle client connection
             future = service.submit(callobj);
         }
-
-        // System.out.println("Exiting Server");
-
-        // serverSocket.close();
     }
 }
 
@@ -185,6 +205,7 @@ class requestHandler implements Callable<Integer> {
     Server owner;
     String requesterId,
         requesterType;
+    private final static Logger LOGGER = Logger.getLogger(Applog.class.getName());
 
     public requestHandler(Channel chnl, Server own) {
         this.requesterChannel = chnl;
@@ -193,6 +214,14 @@ class requestHandler implements Callable<Integer> {
 
     private String[] parseRequest(String request) {
         return request.split(":");
+    }
+
+    private void logInfo(String message) {
+        LOGGER.info(String.format("%s: %s: %s", this.requesterId, Thread.currentThread().getId(), message));
+    }
+
+    private void logSevere(String message, Exception ex) {
+        LOGGER.log(Level.SEVERE, String.format("%s: %s: %s", this.requesterId, Thread.currentThread().getId(), message), ex);
     }
 
     public Integer call() throws IOException, FileNotFoundException {
@@ -207,15 +236,13 @@ class requestHandler implements Callable<Integer> {
         // Update external event time based on request timestamp
         Server.updateLogicalTimestamp(Long.parseLong(params[3]));
 
-        System.out.println(requestIdentifier);
-
         // Call function based on client or server
         if (this.requesterType.equals("client")) {
-            System.out.println("Request from client");
+            this.logInfo(String.format("request from client with identifier %s", requestIdentifier));
 
             // Check file exists in expected file list
             if (!Arrays.asList(Node.fileList).contains(fileName)) {
-                System.out.println(String.format("File %s does not exist in system", fileName));
+                LOGGER.warning(String.format("file %s does not exist in system", fileName));
 
                 this.requesterChannel.send("ERR: file not found");
 
@@ -225,27 +252,34 @@ class requestHandler implements Callable<Integer> {
             try {
                 this.clientHandler();
 
-                System.out.println(String.format("server %s sends a successful ack to client %s", this.owner.id, this.requesterId));
+                this.logInfo(String.format("server %s sends a successful ack to client %s", this.owner.id, this.requesterId));
 
                 this.requesterChannel.send("ACK");
             }
-            catch (Exception e) {
-                System.out.println(String.format("Error while handling client request: %s", e));
+            catch (Exception ex) {
+                this.logSevere(ex.getMessage(), ex);
 
-                this.requesterChannel.send("ERR");
+                this.requesterChannel.send(String.format("ERR: %s", ex.getMessage()));
 
                 return 0;
             }
             
         }
         else if (this.requesterType.equals("server")) {
-            System.out.println("Request from server");
+            this.logInfo(String.format("request from file server with identifier: %s", requestIdentifier));
 
             try {
                 this.serverHandler(fileName);
+
+                this.logInfo(String.format("request %s completed successfully", requestIdentifier));
             }
-            catch (Exception e) {
-                System.out.println(String.format("Failed to handle request from server %s: %s", this.requesterId, e));
+            catch (Exception ex) {
+                this.logSevere(
+                    String.format("ERR: %s Failed to handle request from server %s", ex.getMessage(), this.requesterId), 
+                    ex
+                );
+
+                this.requesterChannel.send(String.format("ERR: %s", ex.getMessage()));
 
                 return 0;
             }
@@ -264,7 +298,7 @@ class requestHandler implements Callable<Integer> {
         // Parse request to obtain required parameters for task
         String[] requestParams = this.parseRequest(clientRequest);
 
-        System.out.println(
+        this.logInfo(
             String.format("server %s receives: %s for file %s at time: %s",
                 this.owner.id,
                 requestParams[3], // message
@@ -303,7 +337,7 @@ class requestHandler implements Callable<Integer> {
             clusterEvent.timestamp // Needs to reflect time related to sequence no. (not necessarily task time)
         );
 
-        System.out.println(String.format("Sending %s", taskMessage));
+        this.logInfo(String.format("Sending %s", taskMessage));
 
         // Send REQ for task to servers
         this.owner.broadcastToCluster(serverChannels, clusterEvent.sequenceNos, taskMessage);
@@ -331,7 +365,7 @@ class requestHandler implements Callable<Integer> {
             clusterEvent.timestamp
         );
 
-        System.out.println(String.format("Sending %s", taskMessage));
+        this.logInfo(String.format("Sending release %s", taskMessage));
 
         // Send release to all servers in cluster
         this.owner.broadcastToCluster(serverChannels, clusterEvent.sequenceNos, taskMessage);
@@ -341,7 +375,7 @@ class requestHandler implements Callable<Integer> {
 
         // Remove task from queue
         if (!this.owner.fileToTaskQueue.get(task.fileName).poll().equals(task)) {
-            throw new Exception(String.format("Incorrect task removed from head of Queue %s", task));
+            throw new Exception(String.format("incorrect task removed from head of queue %s", task));
         }
 
         // Cleanup sockets
@@ -350,7 +384,7 @@ class requestHandler implements Callable<Integer> {
         }
     }
 
-    private void serverHandler(String fileName) throws Exception {
+    private void serverHandler(String fileName) throws UnexpectedException, IOException, InterruptedException, NameNotFoundException {
         Event clusterEvent;
 
         // Get the server information that sent the request
@@ -359,12 +393,14 @@ class requestHandler implements Callable<Integer> {
         // Get the task request
         String serverRequest = requesterNode.receive(this.requesterChannel, fileName);
 
+        this.logInfo(String.format("handling request %s", serverRequest));
+
         // Parse task request
         String[] requestParams = this.parseRequest(serverRequest);
 
         // Check if server present in config
         if (requesterNode.equals(null)) {
-            throw new NameNotFoundException(String.format("Could not find server in config with id=%s", requestParams[2]));
+            throw new NameNotFoundException(String.format("could not find server in config with id=%s", requestParams[2]));
         }
 
         // Create task
@@ -372,6 +408,8 @@ class requestHandler implements Callable<Integer> {
 
         // Set task timestamp. This timestamp depends on server that created task. Therefore use time provided in request
         task.timestamp = Long.parseLong(requestParams[5]); 
+
+        this.logInfo(String.format("added task %s to queue", task.toString()));
 
         // Add task to queue
         this.owner.fileToTaskQueue.get(task.fileName).add(task);
@@ -385,17 +423,21 @@ class requestHandler implements Callable<Integer> {
         // Wait for Release message
         String releaseMessage = requesterNode.receive(this.requesterChannel, task.fileName);
         
+        this.logInfo(String.format("obtained release message %s for task %s", releaseMessage, task.timestamp));
+
         // Wait for task to reach head of queue
         while (!this.owner.fileToTaskQueue.get(task.fileName).peek().equals(task)) {
             Thread.sleep(10); // TODO: switch to wait-notify pattern
         }
+
+        this.logInfo(String.format("executing task %s ...", task.timestamp));
 
         // Execute task
         task.execute();
 
         // Remove task from queue
         if (!this.owner.fileToTaskQueue.get(task.fileName).poll().equals(task)) {
-            throw new Exception(String.format("Incorrect task removed from head of Queue %s", task));
+            throw new UnexpectedException(String.format("incorrect task removed from head of queue %s", task));
         }
 
         // Create event containing sequence no. and timestamp
