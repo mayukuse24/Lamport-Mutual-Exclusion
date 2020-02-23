@@ -62,7 +62,11 @@ public class Server extends Node {
     }
 
     public static synchronized long getLogicalTimestamp() {
-        return Long.max(Server.externalTime, Instant.now().toEpochMilli());
+        long time = Long.max(Server.externalTime, Instant.now().toEpochMilli());
+
+        Server.updateLogicalTimestamp(time + 5);
+
+        return time + 5;
     }
 
     public static synchronized void updateLogicalTimestamp(long time) {
