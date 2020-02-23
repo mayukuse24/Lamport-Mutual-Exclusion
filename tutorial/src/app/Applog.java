@@ -2,6 +2,9 @@ package app;
 
 import java.util.logging.*;
 
+/**
+ * Logger class
+ */
 public class Applog {
     public static void init() {
         System.setProperty("java.util.logging.SimpleFormatter.format", "[%4$-7s] %5$s %n");

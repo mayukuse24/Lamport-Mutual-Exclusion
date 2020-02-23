@@ -3,9 +3,12 @@ package app;
 import java.io.*;
 import java.util.*;
 
+/**
+ * Maintains information regarding a task
+ */
 public class Task {
     public long timestamp;
-    String ownerId,
+    String ownerId, // First server to receive task request
         executorId,
         fileName,
         message;
@@ -20,7 +23,7 @@ public class Task {
     public void execute() throws IOException {
         // TODO: handle failure when file does not exist
         PrintWriter fileObj = new PrintWriter(
-            new FileWriter(String.format("files/%s/%s", this.executorId, this.fileName), true)
+            new FileWriter(String.format("files/%s/%s", this.executorId, this.fileName), true) // TODO: obtain file path via ENV
         );
 
         fileObj.println(this.message);
@@ -29,8 +32,10 @@ public class Task {
     }
 };
 
+/**
+ * Comparator function to be used for ordering task in the priority queue.
+ */
 class TaskComparator implements Comparator<Task> {
-      
     // Overriding compare()method of Comparator for tasks by ascending timestamp, ties broken by ascending serverIds
     public int compare(Task t1, Task t2) { 
         if (t1.timestamp > t2.timestamp) {

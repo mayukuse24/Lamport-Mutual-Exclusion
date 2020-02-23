@@ -82,14 +82,19 @@ public class Client extends Node {
             int serverIndex = rand.nextInt(client.serverList.size());
             Node selectedServer = client.serverList.get(serverIndex);
 
+            // Connect to server
             echoSocket = new Socket(selectedServer.ip, selectedServer.port);
 
+            // Create a buffer to send messages
             writer = new PrintWriter(echoSocket.getOutputStream(), true);
     
+            // Create a buffer to receive messages
             reader = new BufferedReader(new InputStreamReader(echoSocket.getInputStream()));
 
-            // Pick a random file to append message
+            // Message to be appended to file
             String message = String.format("client %s message %s -- server %s", client.id, msgNo, selectedServer.id);
+
+            // Pick a random file to append message
             String fileName = fileList[rand.nextInt(fileList.length)];
 
             instant = Instant.now();
@@ -97,6 +102,7 @@ public class Client extends Node {
             // Identify as a client
             writer.println(String.format("client:%s:%s:%s", client.id, fileName, instant.toEpochMilli()));
 
+            // Task request structure REQ:<client-id>:<server-id>:<message>:<filename>:<timestamp>
             appendRequest = String.format(
                 "REQ:%s:%s:%s:%s:%s",
                 client.id,
@@ -106,7 +112,6 @@ public class Client extends Node {
                 instant.toEpochMilli()
             );
 
-            // Log client request
             LOGGER.info(
                 String.format("client %s requests: %s for file %s at time: %s",
                     client.id,
@@ -116,8 +121,10 @@ public class Client extends Node {
                 )
             );
 
+            // Send task request
             writer.println(appendRequest);              
 
+            // Wait for ACK/ERR response
             String response = reader.readLine();
 
             if (response.equals("ACK")) {
@@ -128,6 +135,8 @@ public class Client extends Node {
             else {
                 LOGGER.info(String.format("%s receives a failure from %s: %s", client.id, selectedServer.id, response));
             }
+
+            // Clean up socket
             echoSocket.close();
         }
 

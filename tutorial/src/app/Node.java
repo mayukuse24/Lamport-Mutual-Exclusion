@@ -4,20 +4,28 @@ import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
 
+/**
+ * Node class underlying client and server. Stores information for a node and provides FIFO support.
+ */
 public class Node {
     public String id, ip;
     public int port;
     static String[] fileList = {"f1", "f2", "f3", "f4"};
+
+    /** 
+     * Locks required for ensuring FIFO ordering across multiple threads of a node. 
+     * FIFO ordering is achieved via sequence nos.
+     */
     public Map<String, Integer> fileToSentSeq;
     public Map<String, Integer> fileToRecvSeq;
     public Map<String, Object> fileToSentLock;
     public Map<String, Object> fileToRecvLock;
 
-    public Node(String Id) { // Constructor for client
+    public Node(String Id) {
         this.id = Id;
     }
 
-    public Node(String Id, String Ip, int p) { // Constructor for servers
+    public Node(String Id, String Ip, int p) {
         this.id = Id;
         this.ip = Ip;
         this.port = p;
@@ -33,10 +41,26 @@ public class Node {
         }
     }
 
+    /**
+     * Attaches sequence no. to message before sending. Should be used to send
+     * messages when FIFO is required (within cluster)
+     * 
+     * @param chnl channel to use for sending message
+     * @param seqNo seqNo to order message for FIFO delivery
+     * @param message message to be sent
+     */
     public void send(Channel chnl, int seqNo, String message) throws IOException {
         chnl.send(String.format("%s:%s", seqNo, message));
     }
 
+    /**
+     * Receive messages padded with a sequence no. Required in FIFO communication. Note: this
+     * function blocks until all messages with lower sequence nos. have been received before
+     * returning the message.
+     * 
+     * @param chnl channel to receive message on
+     * @param fileName file for which task message was generated. TODO: remove this concept later
+     */
     public String receive(Channel chnl, String fileName) throws IOException, InterruptedException {
         String response = chnl.recv();
 

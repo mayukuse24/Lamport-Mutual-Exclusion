@@ -2,6 +2,9 @@ package app;
 
 import java.util.*;
 
+/**
+ * Maintains information regarding an event in a distributed system.
+ */
 public class Event {
     long timestamp;
     List<Integer> sequenceNos;

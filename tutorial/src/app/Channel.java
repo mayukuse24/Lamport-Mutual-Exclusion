@@ -3,6 +3,10 @@ package app;
 import java.io.*;
 import java.net.*;
 
+/**
+ * Use to maintain a single socket connection and read-write buffer for that socket throughout
+ * the socket lifetime. Provides send-recv interface for socket communication
+ */
 public class Channel {
     Socket sock;
     PrintWriter writer;

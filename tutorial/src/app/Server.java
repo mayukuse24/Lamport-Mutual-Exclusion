@@ -11,6 +11,9 @@ import java.util.concurrent.*;
 
 import javax.naming.NameNotFoundException;
 
+/**
+ * The primary class for running server instance. 
+ */
 public class Server extends Node {
     public static long externalTime;
     List<Node> serverList = new ArrayList<Node>();
@@ -29,6 +32,12 @@ public class Server extends Node {
         }
     }
 
+    /**
+     * Load and maintain configuration of other servers in cluster as a list. Skips adding own
+     * config to list.
+     * 
+     * @param fileName file to load config from
+     */
     public void loadConfig(String fileName) throws FileNotFoundException, IOException {
         BufferedReader inputBuffer = new BufferedReader(new FileReader(fileName));
         String line;
@@ -49,6 +58,11 @@ public class Server extends Node {
         inputBuffer.close();
     }
 
+    /**
+     * Return node instance that matches server id.
+     * 
+     * @param nodeId the server id to look for in the server list
+     */
     public Node getNodeFromId(String nodeId) {
         Node snode = null;
 
@@ -61,6 +75,11 @@ public class Server extends Node {
         return snode;
     }
 
+    /**
+     * Returns the timestamp in epoch (ms). The timestamp simulates a strictly increasing virtual clock.
+     * The virtual time is the max of the local time and virtual time received from other nodes. It acts
+     * as an event timestamp. Every call to this function returns a unique timestamp, which is never repeated again.
+     */
     public static synchronized long getLogicalTimestamp() {
         long time = Long.max(Server.externalTime, Instant.now().toEpochMilli());
 
@@ -69,10 +88,26 @@ public class Server extends Node {
         return time + 5;
     }
 
+    /**
+     * Updates the logical clock for the server based on the latest external time and
+     * provided time
+     * 
+     * @param time the latest time to be updated to
+     */
     public static synchronized void updateLogicalTimestamp(long time) {
         Server.externalTime = Long.max(Server.externalTime, time + 1);
     }
 
+    /**
+     * Creates a single event which ensures that the communication channel across threads remains
+     * FIFO. Note: an event needs to be created before sending across a task request/release.
+     * The event (and the sequence no/timestamp combination generated) ensures that the channel
+     * across two servers remains FIFO, despite having threads. This is critical to the working of
+     * Lamport's mutual exclusion algorithm.
+     * 
+     * @param serverNode the node which will receive the task request/release
+     * @param task the task for which the event is being created
+     */
     public Event createEvent(Node serverNode, Task task) {
         int seqNo;
         long eventTimestamp;
@@ -87,10 +122,20 @@ public class Server extends Node {
             serverNode.fileToSentSeq.put(task.fileName, seqNo + 1);
         }
 
-        // Event associated with a Task. TODO: expand on Event concept
+        // Event associated with a Task
         return new Event(eventTimestamp, seqNo);
     }
 
+    /**
+     * This creates an event for broadcasting to every server in cluster. See createEvent function
+     * for further information on the importance of events. Note: the multiple sequence nos. generated
+     * need to carry the same timestamp. This ensures that for this task the same FIFO ordering is established
+     * across all nodes.
+     * 
+     * @param nodesInCluster all nodes in cluster that need to receive the task
+     * @param task the task for which the event is being created
+     * @return single Event that captures sequence nos. for all nodes. TODO: return a list of events
+     */
     public Event createClusterEvent(List<Node> nodesInCluster, Task task) {
         int seqNo;
         long eventTimestamp = Server.getLogicalTimestamp();
@@ -110,10 +155,18 @@ public class Server extends Node {
             }
         }
 
-        // Event associated with a Task. TODO: expand on Event concept
+        // Event associated with a Task
         return new Event(eventTimestamp, seqNos); 
     }
 
+    /**
+     * Send out message to every channel, each channel corresponds to a node in cluster.
+     * TODO: the seqNos should not be passed as separate list, should instead be provided with the server channels
+     * 
+     * @param serverChannels channels to send message to
+     * @param seqNos the sequence no. corresponds to each channel in serverChannels. Required for FIFO ordering
+     * @param message the message to be sent
+     */
     public void broadcastToCluster(List<Channel> serverChannels, List<Integer> seqNos, String message) throws IOException {
         for (int serverIndex = 0; serverIndex < this.serverList.size(); serverIndex++) {
             this.serverList.get(serverIndex)
@@ -125,6 +178,13 @@ public class Server extends Node {
         }
     }
 
+    /**
+     * Wait for a ACK response on every channel, each channel corresponds to a node in cluster. This confirms for each
+     * node that received a broadcast message earlier.
+     * 
+     * @param serverChannels channels to receive acknowledgement from
+     * @param fileName the file for which response is expected. TODO: fileName should not be a parameter
+     */
     public void broadcastConfirmation(List<Channel> serverChannels, String fileName) throws IOException, InterruptedException, UnexpectedException {
         String response;
 
@@ -138,7 +198,15 @@ public class Server extends Node {
         }
     }
 
+    /**
+     * Entry point for server
+     * 
+     * @param args[0] server id to uniquely identify server
+     * @param args[1] ip for server to bind and listen on. TODO; remove, ip address not required for binding
+     * @param args[2] port for server to bind and listen on
+     */
     public static void main(String[] args) throws IOException {
+        // Sets the thread pool size. TODO: make this parameter dynamic
         int MAX_POOL_SIZE = 7;
 
         if (args.length != 3) {
@@ -165,25 +233,28 @@ public class Server extends Node {
             }
         });
 
+        // Create an instance of Server and store connection information
         Server selfServer = new Server(args[0], args[1], Integer.parseInt(args[2]));
 
+        // Capture current system time
         Instant instant = Instant.now();
 
-        // Log server start
         LOGGER.info(String.format("server %s starts at time: %s", selfServer.id, instant.toEpochMilli()));
 
         // Get list of available file servers from config.txt file TODO: remove hard coded values
         selfServer.loadConfig("config.txt");
 
+        // Create a thread pool
         final ExecutorService service = Executors.newFixedThreadPool(MAX_POOL_SIZE);
 
-        Future<Integer> future = null;
-
-        Server.serverSocket = new ServerSocket(selfServer.port); // Listens on all ip addresses of host
+        // Create a socket and bind to port. Listens on all ip addresses of host
+        Server.serverSocket = new ServerSocket(selfServer.port); 
 
         while (true) {
+            // Listen for incoming connection requests
             Socket clientSocket = Server.serverSocket.accept();
 
+            // Create a channel 
             Channel clientChannel = new Channel(clientSocket);
 
             LOGGER.info(String.format("received connection request from ip=%s, port=%s",
@@ -197,7 +268,7 @@ public class Server extends Node {
             );
 
             // Call thread to handle client connection
-            future = service.submit(callobj);
+            service.submit(callobj);
         }
     }
 }
@@ -215,6 +286,9 @@ class requestHandler implements Callable<Integer> {
         this.owner = own;
     }
 
+    /**
+     * Parse incoming request and return list of parameters
+     */
     private String[] parseRequest(String request) {
         return request.split(":");
     }
@@ -227,6 +301,9 @@ class requestHandler implements Callable<Integer> {
         LOGGER.log(Level.SEVERE, String.format("%s: %s: %s", this.requesterId, Thread.currentThread().getId(), message), ex);
     }
 
+    /**
+     * Entry point for thread. Handles request, identifies requester and calls respective handler.
+     */
     public Integer call() throws IOException, FileNotFoundException {
         String requestIdentifier = this.requesterChannel.recv();
 
@@ -239,24 +316,24 @@ class requestHandler implements Callable<Integer> {
         // Update external event time based on request timestamp
         Server.updateLogicalTimestamp(Long.parseLong(params[3]));
 
-        // Call function based on client or server
+        // Check file exists in expected file list
+        if (!Arrays.asList(Node.fileList).contains(fileName)) {
+            LOGGER.warning(String.format("file %s does not exist in system", fileName));
+
+            this.requesterChannel.send(String.format("ERR: file not found %s", fileName));
+
+            return 0;
+        }
+
         if (this.requesterType.equals("client")) {
             this.logInfo(String.format("request from client with identifier %s", requestIdentifier));
-
-            // Check file exists in expected file list
-            if (!Arrays.asList(Node.fileList).contains(fileName)) {
-                LOGGER.warning(String.format("file %s does not exist in system", fileName));
-
-                this.requesterChannel.send("ERR: file not found");
-
-                return 0;
-            }
 
             try {
                 this.clientHandler();
 
                 this.logInfo(String.format("server %s sends a successful ack to client %s", this.owner.id, this.requesterId));
 
+                // Send acknowledgement to client for successful task execution
                 this.requesterChannel.send("ACK");
             }
             catch (Exception ex) {
@@ -291,6 +368,9 @@ class requestHandler implements Callable<Integer> {
         return 1;
     }
 
+    /**
+     * Handle task request from client.
+     */
     private void clientHandler() throws IOException, UnknownHostException, InterruptedException, Exception {
         String taskMessage;
         Event clusterEvent;
@@ -313,6 +393,7 @@ class requestHandler implements Callable<Integer> {
         // Create task with message to be appended to file
         Task task = new Task(this.owner.id, this.owner.id, requestParams[4], requestParams[3]);
 
+        // Create a new channel for every node in cluster and send channel identifier
         for (Node server : this.owner.serverList) {
             Channel chnl = new Channel(server.ip, server.port);
 
@@ -387,6 +468,9 @@ class requestHandler implements Callable<Integer> {
         }
     }
 
+    /**
+     * Handles task request from server
+     */
     private void serverHandler(String fileName) throws UnexpectedException, IOException, InterruptedException, NameNotFoundException {
         Event clusterEvent;
 
