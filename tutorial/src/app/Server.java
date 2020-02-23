@@ -436,6 +436,7 @@ class requestHandler implements Callable<Integer> {
 
         // Remove task from queue
         if (!this.owner.fileToTaskQueue.get(task.fileName).poll().equals(task)) {
+            this.logInfo(String.format("task queue = %s", this.owner.fileToTaskQueue.get(task.fileName).toString()));
             throw new UnexpectedException(String.format("incorrect task removed from head of queue %s", task));
         }
 
