@@ -19,7 +19,6 @@ public class Server extends Node {
         new ConcurrentHashMap<String, PriorityBlockingQueue<Task>>(Node.fileList.length);
 
     private final static Logger LOGGER = Logger.getLogger(Applog.class.getName());
-    private static boolean SHUTDOWN = false;
     private static ServerSocket serverSocket;
 
     public Server(String Id, String Ip, int P) {
